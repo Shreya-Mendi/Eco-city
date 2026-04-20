@@ -71,6 +71,8 @@ class CityEnv(gym.Env):
         self.step_count = 0
         self.candidate_cells = np.zeros(candidate_cells, dtype=np.int64)
         self.state_history: list[dict[str, Any]] = []
+        # When set to a list, each step appends a JSON-ready snapshot (survives VecEnv autoreset).
+        self._export_traj: list[dict[str, Any]] | None = None
         self._rng = np.random.default_rng()
         self._world_layout: WorldLayout | None = None
         self._terrain_seed: int = 0
@@ -200,6 +202,18 @@ class CityEnv(gym.Env):
             "terrain_seed": self._terrain_seed,
         }
         self.state_history.append(snapshot)
+        if self._export_traj is not None:
+            self._export_traj.append(
+                {
+                    "step": snapshot["step"],
+                    "grid": self.grid.copy().tolist(),
+                    "population": snapshot["population"],
+                    "pollution": snapshot["pollution"],
+                    "traffic": snapshot["traffic"],
+                    "energy_balance": snapshot["energy_balance"],
+                    "reward": snapshot["reward"],
+                }
+            )
 
         self._sample_candidates()
         obs = self._get_obs()
