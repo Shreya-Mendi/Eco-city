@@ -10,11 +10,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from stable_baselines3.common.monitor import Monitor
-
 from agents.ppo_agent import make_ppo_agent, save, train
 from env.city_env import CityEnv
 from training.callbacks import MetricsCallback
+from training.vec_env import make_vec_train_env, save_vecnormalize, unwrap_city_env, vecnorm_save_path
 from visualization.exporter import export
 
 
@@ -30,13 +29,14 @@ def main() -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
     Path("results").mkdir(parents=True, exist_ok=True)
 
-    base = CityEnv()
-    env = Monitor(base, filename=str(log_dir / "monitor.csv"))
-    model = make_ppo_agent(env, tensorboard_log="logs")
+    vec_env = make_vec_train_env(log_csv=log_dir / "monitor.csv")
+    base = unwrap_city_env(vec_env)
+    model = make_ppo_agent(vec_env, tensorboard_log="logs")
 
     callback = MetricsCallback()
     train(model, total_timesteps=args.timesteps, callback=callback)
     save(model, args.save_path)
+    save_vecnormalize(vec_env, vecnorm_save_path(args.save_path))
 
     if args.export:
         export(base, "visualization/threejs/city_data.json")
