@@ -9,18 +9,21 @@ export function setupControls(data, cityRenderer, updateStats) {
   let interval = null;
 
   function goToStep(idx) {
-    currentStep = Math.max(0, Math.min(idx, data.length - 1));
+    const history = cityRenderer.getHistory();
+    if (!history.length) return;
+    currentStep = Math.max(0, Math.min(idx, history.length - 1));
     slider.value = String(currentStep);
     stepLabel.textContent = `Step: ${currentStep}`;
-    cityRenderer.render(data[currentStep]);
-    updateStats(data[currentStep]);
+    cityRenderer.renderAt(currentStep);
+    updateStats(history[currentStep]);
   }
 
   playBtn.addEventListener('click', () => {
     if (playing) return;
     playing = true;
+    const history = cityRenderer.getHistory();
     interval = window.setInterval(() => {
-      if (currentStep >= data.length - 1) {
+      if (currentStep >= history.length - 1) {
         window.clearInterval(interval);
         playing = false;
         return;

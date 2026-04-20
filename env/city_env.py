@@ -9,13 +9,19 @@ import numpy as np
 from gymnasium import spaces
 
 from env.dynamics import Zone, update_metrics
+from env.terrain import WorldLayout, generate_world
 
 GRID_SIZE = 10
 NUM_ZONE_TYPES = 7  # one-hot channels 0..6 (matches Zone enum)
 NUM_GLOBAL_FEATURES = 4
 CANDIDATE_CELLS = 5
 MAX_STEPS = 200
-FLAT_OBS_SIZE = GRID_SIZE * GRID_SIZE * NUM_ZONE_TYPES + NUM_GLOBAL_FEATURES  # 704
+# Zone one-hot + per-cell buildable mask + normalized globals
+FLAT_OBS_SIZE = (
+    GRID_SIZE * GRID_SIZE * NUM_ZONE_TYPES
+    + GRID_SIZE * GRID_SIZE
+    + NUM_GLOBAL_FEATURES
+)
 
 
 def _normalize_globals(
@@ -66,6 +72,8 @@ class CityEnv(gym.Env):
         self.candidate_cells = np.zeros(candidate_cells, dtype=np.int64)
         self.state_history: list[dict[str, Any]] = []
         self._rng = np.random.default_rng()
+        self._world_layout: WorldLayout | None = None
+        self._terrain_seed: int = 0
 
         self.observation_space = spaces.Box(
             low=0.0,
@@ -85,9 +93,18 @@ class CityEnv(gym.Env):
         }
 
     def _sample_candidates(self) -> None:
-        n = self.grid_size * self.grid_size
-        idx = self._rng.choice(n, size=self.candidate_cells_n, replace=False)
-        self.candidate_cells = idx.astype(np.int64)
+        assert self._world_layout is not None
+        flat = self._world_layout.buildable.ravel()
+        buildable_idx = np.flatnonzero(flat).astype(np.int64)
+        if buildable_idx.size == 0:
+            raise RuntimeError("No buildable cells; relax terrain parameters.")
+        replace = buildable_idx.size < self.candidate_cells_n
+        pick = self._rng.choice(
+            buildable_idx,
+            size=self.candidate_cells_n,
+            replace=replace,
+        )
+        self.candidate_cells = pick.astype(np.int64)
 
     def reset(
         self,
@@ -98,6 +115,8 @@ class CityEnv(gym.Env):
         super().reset(seed=seed)
         if seed is not None:
             self._rng = np.random.default_rng(seed)
+        self._terrain_seed = int(seed) if seed is not None else int(self._rng.integers(0, 2**31 - 1))
+        self._world_layout = generate_world(self.grid_size, self._terrain_seed)
         self.grid.fill(0)
         self._reset_metrics()
         self.step_count = 0
@@ -129,7 +148,9 @@ class CityEnv(gym.Env):
             self.metrics["energy_supply"],
             self.metrics["energy_demand"],
         )
-        return np.concatenate([flat_grid, g], axis=0).astype(np.float32)
+        assert self._world_layout is not None
+        buildable_flat = self._world_layout.buildable.astype(np.float32).reshape(-1)
+        return np.concatenate([flat_grid, buildable_flat, g], axis=0).astype(np.float32)
 
     def _compute_livability(self) -> float:
         return float(min(self.metrics["population"] / 100.0, 1.0))
@@ -176,6 +197,7 @@ class CityEnv(gym.Env):
             "traffic": float(self.metrics["traffic"]),
             "energy_balance": energy_balance,
             "reward": reward,
+            "terrain_seed": self._terrain_seed,
         }
         self.state_history.append(snapshot)
 
@@ -193,24 +215,9 @@ class CityEnv(gym.Env):
         return obs, reward, terminated, truncated, info
 
     def export_history(self, path: str) -> None:
-        import json
+        from visualization.exporter import export
 
-        out: list[dict[str, Any]] = []
-        for snap in self.state_history:
-            out.append(
-                {
-                    "step": snap["step"],
-                    "grid": snap["grid"].tolist(),
-                    "population": snap["population"],
-                    "pollution": snap["pollution"],
-                    "traffic": snap["traffic"],
-                    "energy_balance": snap["energy_balance"],
-                    "reward": snap["reward"],
-                }
-            )
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(out, f)
-        print(f"Wrote {len(out)} steps to {path}")
+        export(self, path)
 
 
 def decode_action(action: int, candidate_cells: np.ndarray, grid_size: int) -> tuple[int, int, int]:
