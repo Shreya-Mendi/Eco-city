@@ -11,7 +11,7 @@ I’m continuing the **Eco-City** RL project (grid city sim, **PPO** via Stable-
 ### What I already did (or will do)
 
 1. **Clone** the repo: `https://github.com/Shreya-Mendi/Eco-city.git` (or my fork).
-2. **Checkout** the branch where the latest code lives: **`REPLACE_WITH_BRANCH`** (e.g. `eval-tuning`, `main`, or the branch we just pushed).
+2. **Checkout** the branch where the latest handoff code lives: **`colab-local-handoff`** (or `main` after merge).
 3. **Colab downloads** — I have these files from Colab’s `results/` and `visualization/threejs/`:
    - `ppo_eco_city.zip`
    - `ppo_eco_city_vecnormalize.pkl` (must sit next to the zip for correct eval)
