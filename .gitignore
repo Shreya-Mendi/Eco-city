@@ -8,5 +8,5 @@ logs/
 results/
 *.zip
 .ipynb_checkpoints/
-city_data.json
-visualization/threejs/city_data.json
+# city_data.json
+# visualization/threejs/city_data.json
