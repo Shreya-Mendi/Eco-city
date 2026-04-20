@@ -151,14 +151,16 @@ export class CityRenderer {
     terrain.castShadow = false;
     this.staticGroup.add(terrain);
 
-    // Earth base under the terrain so it doesn't look like a floating sheet.
+    // Earth base + skirt so the terrain looks like a solid landmass.
     const baseDepth = Math.max(6, maxH * 0.9);
     const baseGeo = new THREE.BoxGeometry(worldExtent, baseDepth, worldExtent);
     const baseMat = new THREE.MeshStandardMaterial({ color: 0x1f2a28, roughness: 1.0 });
     const base = new THREE.Mesh(baseGeo, baseMat);
-    base.position.set(0, -baseDepth / 2 + 0.01, 0);
+    base.position.set(0, -baseDepth / 2, 0);
     base.receiveShadow = true;
     this.staticGroup.add(base);
+
+    this.buildTerrainSkirt(worldExtent, heights, maxH, res);
 
     // Cache terrain-height sampler so buildings/roads can sit on the ground.
     this._heights = heights;
@@ -223,6 +225,47 @@ export class CityRenderer {
     const lines = new THREE.LineSegments(geo, mat);
     lines.name = 'gridOverlay';
     this.staticGroup.add(lines);
+  }
+
+  buildTerrainSkirt(worldExtent, heights, maxH, resolution) {
+    const half = worldExtent / 2;
+    const sampleAt = (x, z) => {
+      const u = (x + half) / worldExtent;
+      const v = (z + half) / worldExtent;
+      return sampleBilinear(heights, u, v) * maxH;
+    };
+    const steps = Math.max(24, resolution - 1);
+    const positions = [];
+    const addWall = (pts) => {
+      for (let i = 0; i < pts.length - 1; i++) {
+        const [x1, y1, z1] = pts[i];
+        const [x2, y2, z2] = pts[i + 1];
+        positions.push(x1, 0, z1, x1, y1, z1, x2, y2, z2);
+        positions.push(x1, 0, z1, x2, y2, z2, x2, 0, z2);
+      }
+    };
+    const north = [], south = [], west = [], east = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = -half + t * worldExtent;
+      const z = -half + t * worldExtent;
+      north.push([x, sampleAt(x, -half), -half]);
+      south.push([x, sampleAt(x,  half),  half]);
+      west .push([-half, sampleAt(-half, z), z]);
+      east .push([ half, sampleAt( half, z), z]);
+    }
+    addWall(north);
+    addWall(south.slice().reverse());
+    addWall(west.slice().reverse());
+    addWall(east);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({ color: 0x2c3a32, roughness: 0.95 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.receiveShadow = true;
+    mesh.castShadow = false;
+    this.staticGroup.add(mesh);
   }
 
   buildFramingBox(worldExtent, maxH) {

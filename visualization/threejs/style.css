@@ -14,9 +14,10 @@ button:hover { background: #81c784; }
 
 #legend-panel {
   position: fixed; top: 20px; right: 20px; z-index: 10;
-  background: rgba(10,14,26,0.78); padding: 12px 14px; border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.07); backdrop-filter: blur(6px);
-  font-family: monospace; color: #e0e0e0; min-width: 150px;
+  background: rgba(10,14,26,0.85); padding: 12px 14px; border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(8px);
+  font-family: monospace; color: #e8edf7; min-width: 160px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
 }
 #legend-panel .lg-title { color: #4caf50; font-size: 13px; margin-bottom: 8px; letter-spacing: 0.5px; }
 #legend .lg-row { display: flex; align-items: center; gap: 8px; font-size: 12px; margin: 3px 0; }
