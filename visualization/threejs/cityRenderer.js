@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 const CELL_SIZE = 2;
 
-const COLORS = {
+export const COLORS = {
   0: 0x222233,
   1: 0x1565c0,
   2: 0xf57f17,
@@ -10,6 +10,16 @@ const COLORS = {
   4: 0x2e7d32,
   5: 0x424242,
   6: 0xf9a825,
+};
+
+export const ZONE_NAMES = {
+  0: 'Empty',
+  1: 'Residential',
+  2: 'Commercial',
+  3: 'Industrial',
+  4: 'Green',
+  5: 'Road',
+  6: 'Energy',
 };
 
 const HEIGHTS = {
@@ -56,6 +66,9 @@ export class CityRenderer {
     this._history = [];
     this._staticData = null;
     this._terrainMaxHeight = 12;
+    this.worldExtent = 20;
+    this.gridSize = 10;
+    this.cellSize = CELL_SIZE;
   }
 
   setData(raw) {
@@ -108,6 +121,9 @@ export class CityRenderer {
     const worldExtent = staticData.worldExtent ?? gridSize * cellSize;
     const heights = staticData.terrain.heights;
     const res = staticData.terrain.resolution ?? heights.length;
+    this.cellSize = cellSize;
+    this.gridSize = gridSize;
+    this.worldExtent = worldExtent;
 
     const geo = new THREE.PlaneGeometry(worldExtent, worldExtent, res - 1, res - 1);
     geo.rotateX(-Math.PI / 2);
@@ -135,6 +151,24 @@ export class CityRenderer {
     terrain.castShadow = false;
     this.staticGroup.add(terrain);
 
+    // Earth base under the terrain so it doesn't look like a floating sheet.
+    const baseDepth = Math.max(6, maxH * 0.9);
+    const baseGeo = new THREE.BoxGeometry(worldExtent, baseDepth, worldExtent);
+    const baseMat = new THREE.MeshStandardMaterial({ color: 0x1f2a28, roughness: 1.0 });
+    const base = new THREE.Mesh(baseGeo, baseMat);
+    base.position.set(0, -baseDepth / 2 + 0.01, 0);
+    base.receiveShadow = true;
+    this.staticGroup.add(base);
+
+    // Cache terrain-height sampler so buildings/roads can sit on the ground.
+    this._heights = heights;
+    this._heightsMaxH = maxH;
+    this._heightAt = (x, z) => {
+      const u = (x + worldExtent / 2) / worldExtent;
+      const v = (z + worldExtent / 2) / worldExtent;
+      return sampleBilinear(heights, u, v) * maxH;
+    };
+
     const water = staticData.water;
     if (water && water.kind === 'circle') {
       const offset = (gridSize * cellSize) / 2;
@@ -158,6 +192,62 @@ export class CityRenderer {
       wmesh.receiveShadow = true;
       this.staticGroup.add(wmesh);
     }
+
+    this.buildGridOverlay(gridSize, cellSize, worldExtent, heights, maxH);
+    this.buildFramingBox(worldExtent, maxH);
+  }
+
+  buildGridOverlay(gridSize, cellSize, worldExtent, heights, maxH) {
+    const half = worldExtent / 2;
+    const lift = 0.08;
+    // Drape the grid over the terrain by sampling height along each line.
+    const sampleY = (x, z) => {
+      const u = (x + half) / worldExtent;
+      const v = (z + half) / worldExtent;
+      return sampleBilinear(heights, u, v) * maxH + lift;
+    };
+    const positions = [];
+    const subdivs = 24;
+    for (let i = 0; i <= gridSize; i++) {
+      const v = -half + i * cellSize;
+      for (let s = 0; s < subdivs; s++) {
+        const a = -half + (s / subdivs) * worldExtent;
+        const b = -half + ((s + 1) / subdivs) * worldExtent;
+        positions.push(a, sampleY(a, v), v, b, sampleY(b, v), v);
+        positions.push(v, sampleY(v, a), a, v, sampleY(v, b), b);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    const mat = new THREE.LineBasicMaterial({ color: 0xbfe8c8, transparent: true, opacity: 0.38 });
+    const lines = new THREE.LineSegments(geo, mat);
+    lines.name = 'gridOverlay';
+    this.staticGroup.add(lines);
+  }
+
+  buildFramingBox(worldExtent, maxH) {
+    const half = worldExtent / 2;
+    const h = maxH * 1.4;
+    const positions = [
+      -half, 0, -half,  half, 0, -half,
+       half, 0, -half,  half, 0,  half,
+       half, 0,  half, -half, 0,  half,
+      -half, 0,  half, -half, 0, -half,
+      -half, h, -half,  half, h, -half,
+       half, h, -half,  half, h,  half,
+       half, h,  half, -half, h,  half,
+      -half, h,  half, -half, h, -half,
+      -half, 0, -half, -half, h, -half,
+       half, 0, -half,  half, h, -half,
+       half, 0,  half,  half, h,  half,
+      -half, 0,  half, -half, h,  half,
+    ];
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    const mat = new THREE.LineBasicMaterial({ color: 0x4c8cff, transparent: true, opacity: 0.18 });
+    const box = new THREE.LineSegments(geo, mat);
+    box.name = 'framingBox';
+    this.staticGroup.add(box);
   }
 
   renderAt(index) {
@@ -202,14 +292,16 @@ export class CityRenderer {
 
   renderFrameV1(frame) {
     this.clearDynamic();
-    const maxH = this._terrainMaxHeight;
+
+    const sampleHeight = this._heightAt ?? (() => 0);
 
     const roads = frame.roads || [];
     for (const r of roads) {
-      const geo = new THREE.BoxGeometry(r.width, 0.08, r.depth);
+      const geo = new THREE.BoxGeometry(r.width, 0.12, r.depth);
       const mat = new THREE.MeshStandardMaterial({ color: 0x2a2a2e, roughness: 0.9 });
       const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(r.x, (r.y ?? 0.03) + maxH * 0.02, r.z);
+      const groundY = sampleHeight(r.x, r.z);
+      mesh.position.set(r.x, groundY + 0.06, r.z);
       mesh.receiveShadow = true;
       mesh.castShadow = true;
       this.scene.add(mesh);
@@ -239,7 +331,8 @@ export class CityRenderer {
       list.forEach((b, i) => {
         const foot = b.footprint ?? CELL_SIZE * 0.88;
         const h = b.height ?? 2;
-        pos.set(b.x, maxH * 0.02 + h / 2, b.z);
+        const groundY = sampleHeight(b.x, b.z);
+        pos.set(b.x, groundY + h / 2, b.z);
         quat.identity();
         sc.set(foot, h, foot);
         mat4.compose(pos, quat, sc);
