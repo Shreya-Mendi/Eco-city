@@ -66,9 +66,9 @@
 
 ## Slide 7 — Alignment & safety (rubric)
 
-- **Reward misspecification:** Optimizing the scalar can yield **undesirable** equilibria (e.g. industrial clustering, no green space) if weights don’t match stakeholder values.
-- **Proxy risk:** “Livability” as a function of population/metrics is a **proxy**—not full welfare or equity across neighborhoods.
-- **Distribution shift:** Policies trained in one growth/emission regime may **fail** when dynamics or objectives change.
+- **Reward misspecification (we hit this live):** our first PPO run maximized return by **not building anything**—rewarded for 0 pollution + 0 traffic, with no penalty for inaction. Classic reward hacking; fixed by rescaling (see Slide 8).
+- **Proxy risk:** "Livability" as a function of population/metrics is a **proxy**—not full welfare or equity across neighborhoods.
+- **Distribution shift:** Policies trained in one growth/emission regime may **fail** when dynamics or objectives change (Experiment 3 tests this with high-pop-growth and high-industrial-emission shifts).
 - **Mitigations (conceptual):** Constrained RL, reward **modeling** from human feedback, **multi-objective** Pareto policies, **audits** on worst-case scenarios.
 
 ---
@@ -76,8 +76,10 @@
 ## Slide 8 — Failure modes & training challenges (your story)
 
 - **Learning signal:** Very negative raw returns → value network **hard to fit**; **explained variance** near zero early; **VecNormalize** helps align scales.
-- **PPO diagnostics:** **clip_fraction ≈ 0** can mean updates are **tiny** (policy near initial / not yet pushing ratios)—often a **symptom** of slow learning, not necessarily wrong `clip_range`.
-- **Degenerate policies:** Short training or bad scaling can collapse to **repetitive actions** (e.g. always same zone type)—shows need for **longer training**, normalization, or architecture tuning.
+- **Reward hacking (observed in our runs):** PPO converged to **"build nothing"**—all zone-0 grid, total_reward = **0**. Trivially beat the best baseline (heuristic = **-1,932**) without planning anything.
+  - **Root cause:** livability was **clipped at 1.0** while pollution/traffic/energy penalties were **unbounded** → inaction was the Nash equilibrium.
+  - **Fix:** removed the cap (`livability = population / 100`) + added a small **per-built-cell bonus** (+0.01). Now any reasonable city strictly beats the empty grid.
+- **PPO diagnostics during training:** high `clip_fraction` (~0.45) and `approx_kl` (~0.06) even with healthy `ep_rew_mean` gains—signal that updates are aggressive but not catastrophic; `low_lr` (1e-4) in tuning helped stabilize.
 - **MDP gap:** Grid + hand rules **omit** geography, roads network, equity, and social dynamics—**failure modes** in deployment would be structural, not only algorithmic.
 
 ---
