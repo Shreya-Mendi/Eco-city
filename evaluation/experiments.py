@@ -11,12 +11,18 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.vec_env import VecNormalize
 
-from agents.ppo_agent import load, make_ppo_agent, train
+from agents.ppo_agent import make_ppo_agent, save, train
 from baselines.heuristics import GreedyAgent, HeuristicAgent, RandomAgent
 from env.city_env import CityEnv
 from training.callbacks import MetricsCallback
+from training.vec_env import (
+    load_ppo_for_eval,
+    make_vec_train_env,
+    save_vecnormalize,
+    vecnorm_save_path,
+)
 
 
 def _resolve_model_path(path: str) -> str:
@@ -58,6 +64,12 @@ def _rollout_baseline(
     }
 
 
+def _unwrap_city(wrapped: VecNormalize | CityEnv) -> CityEnv:
+    if isinstance(wrapped, VecNormalize):
+        return wrapped.venv.envs[0].env
+    return wrapped
+
+
 def _rollout_ppo(
     model_path: str,
     *,
@@ -65,17 +77,34 @@ def _rollout_ppo(
     seed: int = 42,
     env_kwargs: dict | None = None,
 ) -> dict[str, object]:
-    env = CityEnv(**(env_kwargs or {}), max_steps=max_steps)
     mp = _resolve_model_path(model_path)
-    model = load(mp, env)
-    obs, _ = env.reset(seed=seed)
-    total_reward = 0.0
-    terminated = False
-    truncated = False
-    while not (terminated or truncated):
-        action, _ = model.predict(obs, deterministic=True)
-        obs, reward, terminated, truncated, info = env.step(int(action))
-        total_reward += float(reward)
+    kw = dict(env_kwargs or {})
+    kw.setdefault("max_steps", max_steps)
+    model, wrapped = load_ppo_for_eval(mp, **kw)
+
+    if isinstance(wrapped, VecNormalize):
+        if seed is not None:
+            wrapped.venv.seed(seed)
+        obs = wrapped.reset()
+        total_reward = 0.0
+        while True:
+            action, _ = model.predict(obs, deterministic=True)
+            obs, rewards, dones, infos = wrapped.step(action)
+            total_reward += float(rewards[0])
+            if dones[0]:
+                info = infos[0]
+                break
+    else:
+        env = wrapped
+        obs, _ = env.reset(seed=seed)
+        total_reward = 0.0
+        terminated = False
+        truncated = False
+        while not (terminated or truncated):
+            action, _ = model.predict(obs, deterministic=True)
+            obs, reward, terminated, truncated, info = env.step(int(action))
+            total_reward += float(reward)
+    city = _unwrap_city(wrapped)
     return {
         "agent": "ppo",
         "total_reward": total_reward,
@@ -83,6 +112,7 @@ def _rollout_ppo(
         "final_pollution": info.get("pollution", 0.0),
         "final_traffic": info.get("traffic", 0.0),
         "final_energy_balance": info.get("energy_balance", 0.0),
+        "final_grid": city.grid.tolist(),
     }
 
 
@@ -104,13 +134,13 @@ def run_experiment_1(
             timesteps_train = 200_000
         Path("results").mkdir(parents=True, exist_ok=True)
         Path("logs").mkdir(parents=True, exist_ok=True)
-        inner = CityEnv(max_steps=max_steps)
         log_dir = Path("logs/experiments")
         log_dir.mkdir(parents=True, exist_ok=True)
-        env = Monitor(inner, filename=str(log_dir / "exp1_monitor.csv"))
-        model = make_ppo_agent(env, tensorboard_log="logs")
+        vec_env = make_vec_train_env(log_csv=log_dir / "exp1_monitor.csv", max_steps=max_steps)
+        model = make_ppo_agent(vec_env, tensorboard_log="logs")
         train(model, total_timesteps=timesteps_train, callback=MetricsCallback())
         model.save(mp)
+        save_vecnormalize(vec_env, vecnorm_save_path(mp))
 
     results["ppo"] = _rollout_ppo(mp, max_steps=max_steps)
     return results
@@ -130,31 +160,23 @@ def run_experiment_2(
         ("sustainability", 0.5, 2.0),
         ("growth", 2.0, 0.3),
     ]:
-        inner = CityEnv(alpha=alpha, beta=beta)
-        env = Monitor(inner, filename=str(Path("logs") / f"exp2_{label}.csv"))
-        model = make_ppo_agent(env, tensorboard_log="logs")
+        log_csv = Path("logs") / f"exp2_{label}.csv"
+        vec_env = make_vec_train_env(log_csv=log_csv, alpha=alpha, beta=beta)
+        model = make_ppo_agent(vec_env, tensorboard_log="logs")
         train(model, total_timesteps=train_timesteps, callback=MetricsCallback())
         save_path = str(Path(model_dir) / f"ppo_eco_city_{label}")
         model.save(save_path)
+        save_vecnormalize(vec_env, vecnorm_save_path(save_path))
 
-        ev = CityEnv(alpha=alpha, beta=beta)
-        obs, _ = ev.reset(seed=42)
-        terminated = truncated = False
-        total_reward = 0.0
-        while not (terminated or truncated):
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, _ = ev.step(int(action))
-            total_reward += float(reward)
-
-        grid = ev.grid.copy()
-        flat = grid.ravel().tolist()
+        roll = _rollout_ppo(save_path, env_kwargs={"alpha": alpha, "beta": beta})
+        flat = [c for row in roll["final_grid"] for c in row]
         dist = Counter(flat)
         out[label] = {
             "alpha": alpha,
             "beta": beta,
-            "rollout_reward": total_reward,
+            "rollout_reward": roll["total_reward"],
             "zone_counts": {int(z): int(dist.get(z, 0)) for z in range(7)},
-            "final_grid": grid.tolist(),
+            "final_grid": roll["final_grid"],
         }
     return out
 
@@ -201,21 +223,38 @@ def run_experiment_4(
             f"No trained model at {model_path!r}. Train first, then rerun experiment 4."
         )
 
-    env = CityEnv(max_steps=max_steps)
-    model = load(mp, env)
-    obs, _ = env.reset(seed=42)
-    terminated = truncated = False
+    model, wrapped = load_ppo_for_eval(mp, max_steps=max_steps)
+    city = _unwrap_city(wrapped)
     per_step: list[dict[str, object]] = []
-    while not (terminated or truncated):
-        action, _ = model.predict(obs, deterministic=True)
-        obs, _reward, terminated, truncated, _info = env.step(int(action))
-        dist = Counter(env.grid.ravel().tolist())
-        per_step.append(
-            {
-                "step": env.step_count,
-                "zone_counts": {int(z): int(dist.get(z, 0)) for z in range(7)},
-            }
-        )
+
+    if isinstance(wrapped, VecNormalize):
+        wrapped.venv.seed(42)
+        obs = wrapped.reset()
+        while True:
+            action, _ = model.predict(obs, deterministic=True)
+            obs, _r, dones, _infos = wrapped.step(action)
+            dist = Counter(city.grid.ravel().tolist())
+            per_step.append(
+                {
+                    "step": city.step_count,
+                    "zone_counts": {int(z): int(dist.get(z, 0)) for z in range(7)},
+                }
+            )
+            if dones[0]:
+                break
+    else:
+        obs, _ = wrapped.reset(seed=42)
+        terminated = truncated = False
+        while not (terminated or truncated):
+            action, _ = model.predict(obs, deterministic=True)
+            obs, _reward, terminated, truncated, _info = wrapped.step(int(action))
+            dist = Counter(city.grid.ravel().tolist())
+            per_step.append(
+                {
+                    "step": city.step_count,
+                    "zone_counts": {int(z): int(dist.get(z, 0)) for z in range(7)},
+                }
+            )
     return {"per_step_zone_counts": per_step}
 
 
