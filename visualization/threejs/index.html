@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Eco-City RL Viewer</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="ui">
+    <h2>Eco-City RL</h2>
+    <div id="stats"></div>
+    <div id="controls">
+      <button id="play" type="button">Play</button>
+      <button id="pause" type="button">Pause</button>
+      <input type="range" id="step-slider" min="0" value="0" />
+      <span id="step-label">Step: 0</span>
+    </div>
+  </div>
+  <canvas id="canvas"></canvas>
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js",
+                   "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/" } }
+  </script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

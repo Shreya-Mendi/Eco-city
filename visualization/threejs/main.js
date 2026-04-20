@@ -1,0 +1,77 @@
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CityRenderer } from './cityRenderer.js';
+import { setupControls } from './controls.js';
+
+const canvas = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a1a);
+scene.fog = new THREE.Fog(0x0a0a1a, 50, 200);
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
+camera.position.set(30, 40, 30);
+camera.lookAt(0, 0, 0);
+
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.enableDamping = true;
+
+const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+scene.add(ambient);
+const sun = new THREE.DirectionalLight(0xfff8e1, 1.2);
+sun.position.set(30, 60, 20);
+sun.castShadow = true;
+scene.add(sun);
+
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(100, 100),
+  new THREE.MeshLambertMaterial({ color: 0x1a1a2e })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+const cityRenderer = new CityRenderer(scene);
+
+function updateStats(snapshot) {
+  document.getElementById('stats').innerHTML = `
+    <div>Step: ${snapshot.step}</div>
+    <div>Population: ${snapshot.population}</div>
+    <div>Pollution: ${snapshot.pollution.toFixed(2)}</div>
+    <div>Traffic: ${snapshot.traffic.toFixed(2)}</div>
+    <div>Energy Balance: ${snapshot.energy_balance.toFixed(2)}</div>
+    <div>Reward: ${snapshot.reward.toFixed(3)}</div>
+  `;
+}
+
+fetch('city_data.json')
+  .then((r) => {
+    if (!r.ok) throw new Error(`Failed to load city_data.json (${r.status})`);
+    return r.json();
+  })
+  .then((data) => {
+    setupControls(data, cityRenderer, updateStats);
+    cityRenderer.render(data[0]);
+    updateStats(data[0]);
+    const slider = document.getElementById('step-slider');
+    slider.max = Math.max(0, data.length - 1);
+  })
+  .catch((err) => {
+    document.getElementById('stats').innerHTML = `<div style="color:#f88">Load error: ${err.message}</div>`;
+  });
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+function animate() {
+  requestAnimationFrame(animate);
+  orbit.update();
+  renderer.render(scene, camera);
+}
+animate();
