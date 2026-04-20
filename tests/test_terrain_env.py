@@ -41,6 +41,13 @@ def test_step_only_on_candidates() -> None:
     assert obs.shape[0] == env.observation_space.shape[0]
 
 
+def test_world_always_has_buildable_land() -> None:
+    """Regression: training must never see zero buildable cells (see terrain fallback)."""
+    for s in range(512):
+        w = generate_world(10, s)
+        assert w.buildable.any()
+
+
 def test_obs_includes_buildable() -> None:
     env = CityEnv()
     obs, _ = env.reset(seed=1)

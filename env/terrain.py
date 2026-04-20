@@ -101,6 +101,14 @@ def generate_world(
         & (cell_height < max_height_buildable)
     )
 
+    # Rare RNG layouts: slope/height can exclude every land cell. Always keep land outside the lake usable.
+    if not np.any(buildable):
+        land = ~water_mask
+        if np.any(land):
+            buildable = land.copy()
+        else:
+            buildable = np.ones((grid_size, grid_size), dtype=bool)
+
     res = grid_size * terrain_upsample
     heightmap = _bilinear_resize(cell_height.astype(np.float64), res, res)
 
