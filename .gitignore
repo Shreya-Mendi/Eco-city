@@ -6,7 +6,7 @@ __pycache__/
 venv/
 logs/
 results/
-*.zip
+# *.zip
 .ipynb_checkpoints/
 # city_data.json
 # visualization/threejs/city_data.json
