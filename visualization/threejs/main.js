@@ -47,25 +47,54 @@ function updateStats(snapshot) {
   `;
 }
 
-fetch('city_data.json')
-  .then((r) => {
-    if (!r.ok) throw new Error(`Failed to load city_data.json (${r.status})`);
-    return r.json();
-  })
-  .then((data) => {
-    cityRenderer.setData(data);
-    const history = cityRenderer.getHistory();
-    setupControls(data, cityRenderer, updateStats);
-    cityRenderer.renderAt(0);
-    if (history.length) {
-      updateStats(history[0]);
-    }
-    const slider = document.getElementById('step-slider');
-    slider.max = Math.max(0, history.length - 1);
-  })
-  .catch((err) => {
-    document.getElementById('stats').innerHTML = `<div style="color:#f88">Load error: ${err.message}</div>`;
+function showError(msg) {
+  document.getElementById('stats').innerHTML = `<div style="color:#f88">${msg}</div>`;
+}
+
+function loadRollout(url) {
+  return fetch(url)
+    .then((r) => {
+      if (!r.ok) throw new Error(`Failed to load ${url} (${r.status})`);
+      return r.json();
+    })
+    .then((data) => {
+      cityRenderer.setData(data);
+      const history = cityRenderer.getHistory();
+      setupControls(data, cityRenderer, updateStats);
+      cityRenderer.renderAt(0);
+      if (history.length) updateStats(history[0]);
+      const slider = document.getElementById('step-slider');
+      slider.max = Math.max(0, history.length - 1);
+    });
+}
+
+function populateRolloutPicker(index) {
+  const picker = document.getElementById('rollout-picker');
+  const select = document.getElementById('rollout-select');
+  select.innerHTML = '';
+  index.forEach((item) => {
+    const opt = document.createElement('option');
+    opt.value = `rollouts/${item.file}`;
+    opt.textContent = `#${item.rank + 1}  reward=${item.total_reward.toFixed(2)}  seed=${item.seed}`;
+    select.appendChild(opt);
   });
+  picker.style.display = index.length > 1 ? 'block' : 'none';
+  select.addEventListener('change', (e) => {
+    loadRollout(e.target.value).catch((err) => showError(`Load error: ${err.message}`));
+  });
+}
+
+fetch('rollouts/index.json')
+  .then((r) => (r.ok ? r.json() : null))
+  .then((index) => {
+    if (Array.isArray(index) && index.length) {
+      populateRolloutPicker(index);
+      return loadRollout(`rollouts/${index[0].file}`);
+    }
+    document.getElementById('rollout-picker').style.display = 'none';
+    return loadRollout('city_data.json');
+  })
+  .catch((err) => showError(`Load error: ${err.message}`));
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;

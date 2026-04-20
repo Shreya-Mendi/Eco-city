@@ -10,3 +10,4 @@ results/
 .ipynb_checkpoints/
 # city_data.json
 # visualization/threejs/city_data.json
+visualization/threejs/rollouts/
