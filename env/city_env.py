@@ -155,18 +155,29 @@ class CityEnv(gym.Env):
         return np.concatenate([flat_grid, buildable_flat, g], axis=0).astype(np.float32)
 
     def _compute_livability(self) -> float:
-        return float(min(self.metrics["population"] / 100.0, 1.0))
+        """Population-based livability, unbounded.
+
+        Note: previously clipped to [0, 1], which made 'do nothing' the
+        reward-optimal policy (penalties dominated the tiny capped bonus).
+        """
+        return float(self.metrics["population"]) / 100.0
 
     def _compute_reward(self) -> float:
         livability = self._compute_livability()
         pollution = float(self.metrics["pollution"])
         traffic = float(self.metrics["traffic"])
         mismatch = abs(self.metrics["energy_demand"] - self.metrics["energy_supply"])
+        # Small per-built-cell bonus so 'empty grid' is strictly worse than
+        # any reasonable city; prevents a degenerate 'place zone 0 everywhere'
+        # optimum while being tiny enough not to dominate the real objective.
+        built = float((self.grid != 0).sum())
+        build_bonus = 0.01 * built
         return (
             self.alpha * livability
             - self.beta * pollution
             - self.gamma * traffic
             - self.delta * mismatch
+            + build_bonus
         )
 
     def step(self, action: int) -> tuple[np.ndarray, SupportsFloat, bool, bool, dict[str, Any]]:
