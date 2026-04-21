@@ -1,8 +1,9 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { background: #0a0a1a; color: #e0e0e0; font-family: monospace; overflow: hidden; }
 #canvas { display: block; width: 100vw; height: 100vh; }
-#ui { position: fixed; top: 20px; left: 20px; z-index: 10; background: rgba(0,0,0,0.7);
-      padding: 16px; border-radius: 8px; min-width: 220px; }
+#ui { position: fixed; top: 20px; left: 20px; z-index: 10; background: rgba(10,14,26,0.78);
+      padding: 16px; border-radius: 10px; min-width: 240px; backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,0.07); }
 #ui h2 { color: #4caf50; margin-bottom: 10px; }
 #stats div { margin: 4px 0; font-size: 13px; }
 #controls { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -10,3 +11,14 @@ button { background: #4caf50; color: #000; border: none; padding: 4px 10px;
          border-radius: 4px; cursor: pointer; font-family: monospace; }
 button:hover { background: #81c784; }
 #step-slider { width: 100%; }
+
+#legend-panel {
+  position: fixed; top: 20px; right: 20px; z-index: 10;
+  background: rgba(10,14,26,0.85); padding: 12px 14px; border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(8px);
+  font-family: monospace; color: #e8edf7; min-width: 160px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+}
+#legend-panel .lg-title { color: #4caf50; font-size: 13px; margin-bottom: 8px; letter-spacing: 0.5px; }
+#legend .lg-row { display: flex; align-items: center; gap: 8px; font-size: 12px; margin: 3px 0; }
+#legend .lg-swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.15); display: inline-block; }

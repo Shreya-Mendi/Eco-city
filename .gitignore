@@ -10,3 +10,13 @@ results/
 .ipynb_checkpoints/
 # city_data.json
 # visualization/threejs/city_data.json
+visualization/threejs/rollouts/
+
+# Downloaded evaluation artifacts (should live under results/ or be ignored)
+/ppo_eco_city*.zip
+/ppo_eco_city*.pkl
+/eval_summary.json
+/experiment_results.json
+/tuning_results.json
+/top_rollouts.zip
+/city_data*.json

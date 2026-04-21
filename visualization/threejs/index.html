@@ -9,6 +9,10 @@
 <body>
   <div id="ui">
     <h2>Eco-City RL</h2>
+    <div id="rollout-picker" style="margin-bottom:8px;">
+      <label for="rollout-select" style="margin-right:6px;">Rollout:</label>
+      <select id="rollout-select"></select>
+    </div>
     <div id="stats"></div>
     <div id="controls">
       <button id="play" type="button">Play</button>
@@ -16,6 +20,10 @@
       <input type="range" id="step-slider" min="0" value="0" />
       <span id="step-label">Step: 0</span>
     </div>
+  </div>
+  <div id="legend-panel">
+    <div class="lg-title">Zones</div>
+    <div id="legend"></div>
   </div>
   <canvas id="canvas"></canvas>
   <script type="importmap">
