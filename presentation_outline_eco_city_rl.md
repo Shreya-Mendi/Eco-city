@@ -1,5 +1,5 @@
-# Eco-City RL — 7-Minute Presentation Outline  
-**Course:** RL class | **Format:** Copy each `##` block into one slide (title + bullets)
+# Eco-City RL — 7-Minute Presentation Outline
+**Course:** AIPI 590 (Modern RL) | **Format:** Copy each `##` block into one slide (title + bullets)
 
 **Timing guide:** ~45–55 seconds per slide → ~9 slides ≈ 7 minutes (leave 30s buffer).
 
@@ -16,15 +16,15 @@
 ## Slide 2 — Applied use case (rubric: structured domain)
 
 - **Problem:** Cities must make **sequential, coupled** land-use decisions (zoning, roads, green space, energy) under **competing objectives**.
-- **Structured domain:** Discrete grid; zone types; transition rules from planning/engineering-style dynamics (population, emissions, traffic, energy balance).
-- **Outcome we care about:** Policies that **balance** livability and environmental/load constraints—not a one-shot classifier predicting “good/bad” cities.
+- **Structured domain:** Discrete 10×10 grid; 7 zone types; transition rules from planning/engineering-style dynamics (population, emissions, traffic, energy balance).
+- **Outcome we care about:** Policies that **balance** livability and environmental/load constraints — not a one-shot classifier predicting "good/bad" cities.
 
 ---
 
 ## Slide 3 — Why RL? (justification)
 
 - **Sequential:** Early zoning **constrains** later choices (path dependence).
-- **Delayed & global reward:** “Good” outcomes emerge after many steps; myopic rules miss long-horizon trade-offs.
+- **Delayed & global reward:** "Good" outcomes emerge after many steps; myopic rules miss long-horizon trade-offs.
 - **Policy optimization:** We want a **decision rule** (policy), not only prediction of outcomes.
 - **Baselines fall short:** Random / greedy / hand-crafted heuristics are useful **comparisons** but don’t optimize a stated objective under uncertainty.
 
@@ -36,11 +36,11 @@
 
 | Component | Eco-City prototype |
 |-----------|-------------------|
-| **State** | Grid (zone IDs) + global features (population, pollution, traffic, energy imbalance)—flattened for PPO. |
-| **Action** | Choose **cell** (from sampled candidates) + **zone type** (residential, industrial, green, road, energy, …). |
-| **Dynamics** | Rule-based updates: e.g. industry ↑ pollution; green mitigates; roads affect traffic pressure; energy assets ↑ supply. |
-| **Reward** | Multi-objective scalar: weighted **livability** minus penalties on pollution, traffic, energy mismatch (weights α, β, γ, δ). |
-| **Horizon** | Fixed episode length (e.g. 200 steps). |
+| **State** | 10×10 grid (zone IDs) + buildable mask + global features (population, pollution, traffic, energy balance). 804-d flat obs. |
+| **Action** | Discrete: pick 1 of 5 candidate cells × 7 zone types (**35 actions**). |
+| **Dynamics** | Rule-based: industry ↑ pollution; green mitigates; roads affect traffic; energy assets ↑ supply. |
+| **Reward** | `α · livability − β · pollution − γ · traffic − δ · |Δenergy| + 0.01 · built_cells` |
+| **Horizon** | 200 steps per episode; terrain resampled each reset. |
 
 *One sentence:* This is a **simplified MDP** for research and visualization, not a production digital twin.
 
@@ -48,46 +48,67 @@
 
 ## Slide 5 — Prototype & implementation
 
-- **Simulation:** Grid world + metrics; **3D viewer** (e.g. Three.js) to **inspect** emergent layouts.
-- **Algorithm:** **PPO** (Stable-Baselines3)—scalable for continuous-ish observations and large discrete action spaces vs. tabular Q methods.
-- **Training aids:** **VecNormalize** (normalize obs/rewards) to align value targets with return scale; baselines: random, greedy, heuristic.
-- **Metrics:** Episode return; final pollution, traffic, population; zone distribution; (optional) export episode trajectory for the viewer.
+- **Simulation:** Grid + terrain (buildable mask) + dynamics; **Three.js 3D viewer** for trajectory playback.
+- **Algorithm:** **PPO** (Stable-Baselines3, MLP policy) — scalable for large discrete action spaces vs. tabular Q.
+- **Training aids:** **VecNormalize** (reward/obs scaling), 500k timesteps, Colab GPU.
+- **Baselines:** random, greedy (argmax placement), hand-crafted heuristic.
+- **Evaluation harness:** 4 experiments + HP sweep + top-K rollout saver, all reproducible from one Colab notebook.
 
 ---
 
-## Slide 6 — Metrics & literature (rubric)
+## Slide 6 — Results: final numbers
 
-- **Metrics:** Cumulative reward; pollution; congestion proxy; energy balance; zoning balance / growth.
-- **Core RL:** Sutton & Barto — MDPs, policy optimization, value bootstrapping.
-- **PPO:** Schulman et al. — stable policy-gradient updates for continuous control and many simulators.
-- **Urban / simulation context (optional cite):** Urban analytics and land-use simulation literature (e.g. zoning and ABM-style models)—our prototype is **inspired by** that structure, **simplified** for RL.
+**Cumulative reward (higher = better, 200-step episode):**
+
+| Agent | Total Reward | Margin vs heuristic |
+|-------|-------------:|--------------------:|
+| random | −4,750 | worse |
+| greedy | −6,324 | worse |
+| **heuristic** (best baseline) | **−1,911** | — |
+| **PPO (ours)** | **+21.08** | **+1,932** |
+
+**Hyperparameter sweep** (`training/tune_ppo.py`, 80k steps each):
+
+| Config | Reward |
+|--------|-------:|
+| **low_lr (1e-4)** | **+21.28** ← best |
+| default (3e-4) | −265.67 |
+| larger_minibatch | −48.38 |
+| high_ent | −2,906 |
+
+**Best-run rollouts** (`evaluation/save_top_rollouts.py`, 20 seeds → top 3):  
+`seed 18: +43.70` · `seed 10: +20.45` · `seed 17: +7.84` — all **positive**, confirming a robust learned policy.
 
 ---
 
 ## Slide 7 — Alignment & safety (rubric)
 
-- **Reward misspecification (we hit this live):** our first PPO run maximized return by **not building anything**—rewarded for 0 pollution + 0 traffic, with no penalty for inaction. Classic reward hacking; fixed by rescaling (see Slide 8).
-- **Proxy risk:** "Livability" as a function of population/metrics is a **proxy**—not full welfare or equity across neighborhoods.
-- **Distribution shift:** Policies trained in one growth/emission regime may **fail** when dynamics or objectives change (Experiment 3 tests this with high-pop-growth and high-industrial-emission shifts).
-- **Mitigations (conceptual):** Constrained RL, reward **modeling** from human feedback, **multi-objective** Pareto policies, **audits** on worst-case scenarios.
+- **Reward hacking — we hit this live (Slide 8):** our first PPO converged to **doing nothing** (all-empty grid, reward = 0). It "beat" baselines by exploiting a ceiling in `livability`.
+- **Proxy risk:** "livability" as `population/100` is a **proxy** — not welfare or equity across neighborhoods.
+- **Distribution shift (Experiment 3):** trained policy tested on **high-pop-growth** and **high-industrial-emission** dynamics — reward unchanged at +21.08 across all three. Suggests the policy isn’t sensitive to external regime (could be robustness, or could be a sign the policy is doing the same "minimalist" strategy regardless).
+- **Mitigations (conceptual):** constrained RL, reward **modeling** from human feedback, **multi-objective** Pareto policies, audits on worst-case scenarios.
 
 ---
 
-## Slide 8 — Failure modes & training challenges (your story)
+## Slide 8 — Failure modes & training challenges (the real story)
 
-- **Learning signal:** Very negative raw returns → value network **hard to fit**; **explained variance** near zero early; **VecNormalize** helps align scales.
-- **Reward hacking (observed in our runs):** PPO converged to **"build nothing"**—all zone-0 grid, total_reward = **0**. Trivially beat the best baseline (heuristic = **-1,932**) without planning anything.
-  - **Root cause:** livability was **clipped at 1.0** while pollution/traffic/energy penalties were **unbounded** → inaction was the Nash equilibrium.
-  - **Fix:** removed the cap (`livability = population / 100`) + added a small **per-built-cell bonus** (+0.01). Now any reasonable city strictly beats the empty grid.
-- **PPO diagnostics during training:** high `clip_fraction` (~0.45) and `approx_kl` (~0.06) even with healthy `ep_rew_mean` gains—signal that updates are aggressive but not catastrophic; `low_lr` (1e-4) in tuning helped stabilize.
-- **MDP gap:** Grid + hand rules **omit** geography, roads network, equity, and social dynamics—**failure modes** in deployment would be structural, not only algorithmic.
+- **Reward hacking (run 1):** PPO chose *inaction*. `livability` was clipped at 1 while pollution/traffic/energy penalties were unbounded → the empty grid was the **Nash equilibrium** (reward 0 > any negative real city).
+  - **Fix applied:** uncap livability, add **+0.01 per built cell** bonus.
+  - **Result:** positive reward, actual construction.
+- **New minimalist policy (post-fix):** Experiment 4 shows the learned strategy is **~11 cells**: 8 × ROAD + 3 × GREEN. Zero residential / industrial → zero population, zero pollution, zero penalties, ~+22 from build bonus.
+  - That’s still partial reward hacking — the agent found a "clean but empty" local optimum. It matches our reward function *perfectly*, which tells us the reward design is the real research surface.
+- **PPO diagnostics:** high `clip_fraction` (~0.45) and `approx_kl` (~0.06) during training → updates too aggressive. HP sweep confirmed: **low_lr (1e-4) ≫ default (3e-4)** — exactly the fix the diagnostics suggested.
+- **Value-function fit:** `explained_variance` climbed 0 → **0.7** after VecNormalize — critic is healthy.
+- **MDP gap:** simplified dynamics omit geography, networks, equity — deployment failure modes would be structural, not only algorithmic.
 
 ---
 
 ## Slide 9 — Future work & conclusion
 
-- **Future work:** Richer dynamics (network traffic, budget constraints), **multi-agent** stakeholders, **offline RL** from real urban data, **safe exploration** under constraints.
-- **Takeaway:** RL is a **natural fit** for sequential multi-objective planning; our **prototype** makes trade-offs **visible** and forces **explicit** reward design—where **alignment** work actually lives.
+- **Reward redesign:** shape livability for *actual* population growth (not just non-empty cells); add pollution-per-resident not per-cell.
+- **Hierarchical RL:** higher-level planner sets subgoals (zone mix targets); low-level PPO executes.
+- **Warm-start (SFT → PPO):** train on heuristic demonstrations, then RL fine-tune — standard modern RL recipe.
+- **Takeaway:** RL is a **natural fit** for sequential multi-objective planning, and our prototype makes **reward design** the visible research lever — which is where alignment work actually lives.
 - **Thank you / Questions**
 
 ---
@@ -95,19 +116,22 @@
 ## Speaker notes (optional — not on slides)
 
 - **7 min pacing:** Slides 1–2 (~1:00), 3–4 (~1:30), 5–6 (~1:30), 7 (~1:00), 8 (~1:30), 9 (~0:30).
-- **Demo (if allowed):** 15–20s screen record of **3D playback** or TensorBoard curve—**only if** it doesn’t break the clock.
-- **If asked “why not supervised?”:** No fixed dataset of “optimal” cities for every state; objectives are **policy-dependent** and **path-dependent**.
+- **Demo option:** 15–20s screen record of the **3D viewer** (dropdown with seed 18 rollout, reward +43.70) — only if timing permits.
+- **If asked "why not supervised?":** No fixed dataset of "optimal" cities for every state; objectives are **policy-dependent** and **path-dependent**.
+- **If asked "did the tuned model do better than main?":** Best tuned (low_lr) +21.28 vs main +21.08 — essentially tied, but tuning confirms our diagnostic read.
+- **If asked why PPO "did nothing" at first:** because the reward function let it. Modern RL alignment challenge in miniature.
 
 ---
 
 ## Rubric checklist (for you)
 
 | Requirement | Where covered |
-|-------------|----------------|
+|-------------|---------------|
 | Applied structured domain | Slides 2, 4 |
 | Justify RL | Slide 3 |
 | Prototype / simulation | Slides 4–5 |
+| Metrics + literature | Slide 6 + footnote in Slide 5 |
 | Alignment / safety | Slide 7 |
-| Metrics + literature | Slide 6 |
 | Failure modes + training + MDP | Slides 4, 8 |
+| Concrete results | Slide 6 (table) |
 | Future work | Slide 9 |
